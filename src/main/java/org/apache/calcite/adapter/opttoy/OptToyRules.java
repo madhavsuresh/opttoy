@@ -20,7 +20,7 @@ public class OptToyRules {
       call.rel(0);
       LogicalFilter filter = call.rel(0);
       RexNode condition = filter.getCondition();
-      if (condition.getKind() == SqlKind.GREATER_THAN_OR_EQUAL)  {
+      if (condition.getKind() == SqlKind.EQUALS)  {
         return true;
       }
       return false;
