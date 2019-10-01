@@ -34,11 +34,15 @@ import org.apache.calcite.prepare.CalciteCatalogReader;
 import org.apache.calcite.prepare.PlannerImpl;
 import org.apache.calcite.prepare.Prepare;
 import org.apache.calcite.rel.RelCollationTraitDef;
+import org.apache.calcite.rel.RelDistributionTraitDef;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelRoot;
 import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.rel.core.RelFactories;
+import org.apache.calcite.rel.rules.FilterJoinRule;
 import org.apache.calcite.rel.rules.FilterProjectTransposeRule;
+import org.apache.calcite.rel.rules.PruneEmptyRules;
+import org.apache.calcite.rel.rules.ReduceExpressionsRule;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.rex.RexBuilder;
@@ -128,7 +132,7 @@ public class OptToyAdapterTest extends RelOptTestBase {
     planner = Frameworks.getPlanner(calciteConfig);
 
 
-    SqlTypeFactoryImpl factory = new SqlTypeFactoryImpl((RelDataTypeSystem.DEFAULT);
+    //SqlTypeFactoryImpl factory = new SqlTypeFactoryImpl((RelDataTypeSystem.DEFAULT);
 
 
     final RelDataTypeFactory typeFactory = planner.getTypeFactory();
@@ -217,26 +221,39 @@ public class OptToyAdapterTest extends RelOptTestBase {
 
   @Test
   public void testWhatIsGoinOn() throws SqlParseException, ValidationException, RelConversionException {
-    String sql = "SELECT * from customer";
+    String sql = "SELECT c_custkey from customer where c_custkey=100";
     // String sql = "select n.n_regionkeyzzz from (select * from "
     //       + "(select * from sales.customer) t) n where n.n_nationkey >1";
 
-    optimizer = new VolcanoPlanner(null,null);
+    optimizer = new VolcanoPlanner();
+    optimizer.addRelTraitDef(ConventionTraitDef.INSTANCE);
+    optimizer.addRelTraitDef(RelDistributionTraitDef.INSTANCE);
+    optimizer.addRule(new OptToyRules.OptToyTestFilter());
+    /*
+    // add rules
+    optimizer.addRule(FilterJoinRule.FilterIntoJoinRule.FILTER_ON_JOIN);
+    optimizer.addRule(ReduceExpressionsRule.PROJECT_INSTANCE);
+    optimizer.addRule(PruneEmptyRules.PROJECT_INSTANCE);
+    // add ConverterRule
+    optimizer.addRule(EnumerableRules.ENUMERABLE_MERGE_JOIN_RULE);
+    optimizer.addRule(EnumerableRules.ENUMERABLE_SORT_RULE);
+    optimizer.addRule(EnumerableRules.ENUMERABLE_VALUES_RULE);
+    optimizer.addRule(EnumerableRules.ENUMERABLE_PROJECT_RULE);
+    optimizer.addRule(EnumerableRules.ENUMERABLE_FILTER_RULE);
+     */
     SqlNode node = planner.parse(sql);
     node = planner.validate(node);
-    RelRoot n1 = planner.rel(node);
-    //SqlToRelConverter converter = createSqlToRelConverter();
+    SqlToRelConverter converter = createSqlToRelConverter();
+    RelRoot n = converter.convertQuery(node, true, true);
+    RelNode relNode = n.rel;
+
     //TODO(madhavsuresh): only works with needsValidation set to true.
-    //RelRoot n = converter.convertQuery(node, true, true);
     //System.out.println(n);
     //optimizer.addRelTraitDef();
-    RelTraitSet traitSet = optimizer.emptyTraitSet().replace(Convention.NONE);
-    newCluster(optimizer);
-
-    VolcanoPlannerTraitTest.NoneSingleRel
-    RelNode convertedRel = optimizer.changeTraits()
-    planner.transform(0, traitSet, n1.rel);
-    optimizer.setRoot(n1.rel);
+    RelTraitSet desiredTraits =
+            relNode.getCluster().traitSet().replace(EnumerableConvention.INSTANCE);
+    relNode = optimizer.changeTraits(relNode, desiredTraits);
+    optimizer.setRoot(relNode);
     optimizer.findBestExp();
     /*
     VolcanoPlanner planner = new VolcanoPlanner(null, null);
