@@ -244,6 +244,7 @@ public class OptToyAdapterTest extends RelOptTestBase {
 
   @Test
   public void testWhatIsGoinOn() throws SqlParseException, ValidationException, RelConversionException {
+    //Errors included in commit message
     String sql = "select\n"
             + "  l.l_orderkey\n"
             + "from\n"
