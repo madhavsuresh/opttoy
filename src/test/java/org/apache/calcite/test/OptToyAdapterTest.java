@@ -138,61 +138,60 @@ public class OptToyAdapterTest extends RelOptTestBase {
     SqlParser.Config parserConf =
         SqlParser.configBuilder().setCaseSensitive(false).setLex(Lex.MYSQL).build();
     calciteConfig =
-        Frameworks.newConfigBuilder().defaultSchema(pdnSchema).parserConfig(parserConf).programs(Programs.ofRules(FilterProjectTransposeRule.INSTANCE)).build();
+        Frameworks.newConfigBuilder()
+            .defaultSchema(pdnSchema)
+            .parserConfig(parserConf)
+            .programs(Programs.ofRules(FilterProjectTransposeRule.INSTANCE))
+            .build();
 
     final Expression expression =
-            calciteConnection.getRootSchema() != null
-                    ? Schemas.subSchemaExpression(calciteConnection.getRootSchema(), "name",
-                    JdbcCatalogSchema.class)
-                    : Expressions.call(DataContext.ROOT,
-                    BuiltInMethod.DATA_CONTEXT_GET_ROOT_SCHEMA.method);
-    final SqlDialect dialect =
-            JdbcSchema.createDialect(SqlDialectFactoryImpl.INSTANCE, dataSource);
-    convention =
-            JdbcConvention.of(dialect, expression, "name");
+        calciteConnection.getRootSchema() != null
+            ? Schemas.subSchemaExpression(
+                calciteConnection.getRootSchema(), "name", JdbcCatalogSchema.class)
+            : Expressions.call(DataContext.ROOT, BuiltInMethod.DATA_CONTEXT_GET_ROOT_SCHEMA.method);
+    final SqlDialect dialect = JdbcSchema.createDialect(SqlDialectFactoryImpl.INSTANCE, dataSource);
+    convention = JdbcConvention.of(dialect, expression, "name");
 
     planner = Frameworks.getPlanner(calciteConfig);
 
-
-    //SqlTypeFactoryImpl factory = new SqlTypeFactoryImpl((RelDataTypeSystem.DEFAULT);
-
+    // SqlTypeFactoryImpl factory = new SqlTypeFactoryImpl((RelDataTypeSystem.DEFAULT);
 
     final RelDataTypeFactory typeFactory = planner.getTypeFactory();
-
-
-
-
   }
 
   public static SqlToRelConverter createSqlToRelConverter() {
     RelDataTypeFactory typeFactory = planner.getTypeFactory();
 
-    final Prepare.CatalogReader catalogReader = new CalciteCatalogReader(
+    final Prepare.CatalogReader catalogReader =
+        new CalciteCatalogReader(
             CalciteSchema.from(pdnSchema),
             CalciteSchema.from(pdnSchema).path(null),
-            (JavaTypeFactory) planner.getTypeFactory(), calciteConnection.config());
+            (JavaTypeFactory) planner.getTypeFactory(),
+            calciteConnection.config());
 
     final Context context = calciteConfig.getContext();
     SqlConformance conformance = SqlConformanceEnum.DEFAULT;
     if (context != null) {
       final CalciteConnectionConfig connectionConfig =
-              context.unwrap(CalciteConnectionConfig.class);
+          context.unwrap(CalciteConnectionConfig.class);
       if (connectionConfig != null) {
-        conformance= connectionConfig.conformance();
+        conformance = connectionConfig.conformance();
       }
     }
 
-    final SqlValidator validator = new LocalValidatorImpl(calciteConfig.getOperatorTable(), catalogReader, typeFactory,
-            conformance);
+    final SqlValidator validator =
+        new LocalValidatorImpl(
+            calciteConfig.getOperatorTable(), catalogReader, typeFactory, conformance);
     validator.setIdentifierExpansion(true);
     final RexBuilder rexBuilder = new RexBuilder(typeFactory);
 
-    RelOptCluster cluster =
-            RelOptCluster.create(optimizer, rexBuilder);
+    RelOptCluster cluster = RelOptCluster.create(optimizer, rexBuilder);
 
-    final SqlToRelConverter.ConfigBuilder configBuilder =  SqlToRelConverter.configBuilder().withTrimUnusedFields(true).withDecorrelationEnabled(true);
+    final SqlToRelConverter.ConfigBuilder configBuilder =
+        SqlToRelConverter.configBuilder().withTrimUnusedFields(true).withDecorrelationEnabled(true);
     SqlToRelConverter.Config config = configBuilder.build();
-    return new SqlToRelConverter(null, validator, catalogReader, cluster, StandardConvertletTable.INSTANCE, config);
+    return new SqlToRelConverter(
+        null, validator, catalogReader, cluster, StandardConvertletTable.INSTANCE, config);
   }
 
   public static Frameworks.ConfigBuilder config() {
@@ -243,10 +242,14 @@ public class OptToyAdapterTest extends RelOptTestBase {
   }
 
   @Test
-  public void testWhatIsGoinOn() throws SqlParseException, ValidationException, RelConversionException {
-    //Errors included in commit message
-    String sql = "select\n"
-            + "  l.l_orderkey\n"
+  public void testSimpleJoin() throws SqlParseException, ValidationException {
+    String sql =
+        "select\n"
+            + "  l.l_orderkey,\n"
+            + "  sum(l.l_extendedprice * (1 - l.l_discount)) as revenue,\n"
+            + "  o.o_orderdate,\n"
+            + "  o.o_shippriority\n"
+            + "\n"
             + "from\n"
             + "  customer c,\n"
             + "  orders o,\n"
@@ -254,58 +257,56 @@ public class OptToyAdapterTest extends RelOptTestBase {
             + "\n"
             + "where\n"
             + "  c.c_mktsegment = 'HOUSEHOLD'\n"
-            + "  and c.c_custkey = o.o_custkey\n";
-            //+ "  and l.l_orderkey = o.o_orderkey\n"
-            //+ "  and o.o_orderdate < date '1995-03-25'\n"
-            //+ "  and l.l_shipdate > date '1995-03-25'\n";
-    //String sql = "SELECT c_custkey from customer where c_custkey=100";
-    // String sql = "select n.n_regionkeyzzz from (select * from "
-    //       + "(select * from sales.customer) t) n where n.n_nationkey >1";
+            + "  and c.c_custkey = o.o_custkey\n"
+            + "  and l.l_orderkey = o.o_orderkey\n"
+            + "--  and o.o_orderdate < date '1995-03-25'\n"
+            + "--  and l.l_shipdate > date '1995-03-25'\n"
+            + "\n"
+            + "group by\n"
+            + "  l.l_orderkey,\n"
+            + "  o.o_orderdate,\n"
+            + "  o.o_shippriority\n"
+            + "order by\n"
+            + "  revenue desc,\n"
+            + "  o.o_orderdate\n"
+            + "limit 10";
 
     optimizer = new VolcanoPlanner();
     optimizer.addRelTraitDef(ConventionTraitDef.INSTANCE);
-    //optimizer.addRelTraitDef(RelDistributionTraitDef.INSTANCE);
     optimizer.addRule(new OptToyRules.OptToyTestFilter());
     // add rules
     optimizer.addRule(FilterJoinRule.FilterIntoJoinRule.FILTER_ON_JOIN);
     optimizer.addRule(ReduceExpressionsRule.PROJECT_INSTANCE);
     optimizer.addRule(PruneEmptyRules.PROJECT_INSTANCE);
-    //JdbcConvention jdbcConvention = new JdbcConvention(null, null, "table1");
-    //convention.register(optimizer);
 
     // add ConverterRule
+
+    for (RelOptRule rule : EnumerableRules.rules()) {
+      optimizer.addRule(rule);
+    }
+    /*
+    optimizer.addRule(EnumerableRules.ENUMERABLE_BATCH_NESTED_LOOP_JOIN_RULE);
+    optimizer.addRule(EnumerableRules.ENUMERABLE_JOIN_RULE);
     optimizer.addRule(EnumerableRules.ENUMERABLE_MERGE_JOIN_RULE);
     optimizer.addRule(EnumerableRules.ENUMERABLE_SORT_RULE);
     optimizer.addRule(EnumerableRules.ENUMERABLE_VALUES_RULE);
     optimizer.addRule(EnumerableRules.ENUMERABLE_PROJECT_RULE);
     optimizer.addRule(EnumerableRules.ENUMERABLE_FILTER_RULE);
-    optimizer.addRule(NoneToBindableConverterRule.INSTANCE);
+       */
     SqlNode node = planner.parse(sql);
     node = planner.validate(node);
     SqlToRelConverter converter = createSqlToRelConverter();
     RelRoot n = converter.convertQuery(node, true, true);
     RelNode relNode = n.rel;
 
-    //TODO(madhavsuresh): only works with needsValidation set to true.
-    //System.out.println(n);
-    //optimizer.addRelTraitDef();
-    RelTraitSet desiredTraits = relNode.getCluster().traitSet().replace(EnumerableConvention.INSTANCE);
+    // TODO(madhavsuresh): only works with needsValidation set to true.
+    RelTraitSet desiredTraits =
+        relNode.getCluster().traitSet().replace(EnumerableConvention.INSTANCE);
     relNode = optimizer.changeTraits(relNode, desiredTraits);
-    //desiredTraits = relNode.getCluster().traitSet().replace(BindableConvention.INSTANCE);
-    //relNode = optimizer.changeTraits(relNode, desiredTraits);
     optimizer.setRoot(relNode);
-    optimizer.findBestExp();
-    /*
-    VolcanoPlanner planner = new VolcanoPlanner(null, null);
 
-
-    Tester dynamicTester = createDynamicTester().withDecorrelation(true)
-            .withClusterFactory(
-                    relOptCluster -> RelOptCluster.create(planner, relOptCluster.getRexBuilder()));
-
-    RelRoot root = dynamicTester.convertSqlToRel(sql);
-     */
-
+    RelNode n2 = optimizer.findBestExp();
+    System.out.println(RelOptUtil.toString(n2));
   }
 
   @Test
@@ -361,14 +362,14 @@ public class OptToyAdapterTest extends RelOptTestBase {
     RelNode result = planner.findBestExp();
     System.out.println(RelOptUtil.toString(result));
   }
+
   private static class LocalValidatorImpl extends SqlValidatorImpl {
     protected LocalValidatorImpl(
-            SqlOperatorTable opTab,
-            SqlValidatorCatalogReader catalogReader,
-            RelDataTypeFactory typeFactory,
-            SqlConformance conformance) {
+        SqlOperatorTable opTab,
+        SqlValidatorCatalogReader catalogReader,
+        RelDataTypeFactory typeFactory,
+        SqlConformance conformance) {
       super(opTab, catalogReader, typeFactory, conformance);
     }
-
   }
 }
