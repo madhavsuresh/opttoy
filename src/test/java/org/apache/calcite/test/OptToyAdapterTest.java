@@ -24,6 +24,8 @@ import org.apache.calcite.adapter.jdbc.JdbcCatalogSchema;
 import org.apache.calcite.adapter.jdbc.JdbcConvention;
 import org.apache.calcite.adapter.jdbc.JdbcRules;
 import org.apache.calcite.adapter.jdbc.JdbcSchema;
+import org.apache.calcite.adapter.opttoy.OptToyConvention;
+import org.apache.calcite.adapter.opttoy.OptToyDummyRule;
 import org.apache.calcite.adapter.opttoy.OptToyRules;
 import org.apache.calcite.config.CalciteConnectionConfig;
 import org.apache.calcite.config.CalciteSystemProperty;
@@ -76,6 +78,7 @@ import org.apache.calcite.util.TestUtil;
 import com.google.common.collect.ImmutableMap;
 
 import org.apache.commons.dbcp2.BasicDataSource;
+import org.apache.commons.lang.Validate;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Test;
@@ -242,7 +245,79 @@ public class OptToyAdapterTest extends RelOptTestBase {
   }
 
   @Test
-  public void testSimpleJoin() throws SqlParseException, ValidationException {
+  public void testTPCHQuery10() throws ValidationException, SqlParseException {
+    String sql =
+        "select\n"
+            + "  c.c_custkey,\n"
+            + "  c.c_name,\n"
+            + "  sum(l.l_extendedprice * (1 - l.l_discount)) as revenue,\n"
+            + "  c.c_acctbal,\n"
+            + "  n.n_name,\n"
+            + "  c.c_address,\n"
+            + "  c.c_phone,\n"
+            + "  c.c_comment\n"
+            + "from\n"
+            + "  customer c,\n"
+            + "  orders o,\n"
+            + "  lineitem l,\n"
+            + "  nation n\n"
+            + "where\n"
+            + "  c.c_custkey = o.o_custkey\n"
+            + "  and l.l_orderkey = o.o_orderkey\n"
+            + "  and o.o_orderdate >= date '1994-03-01'\n"
+            + "  and o.o_orderdate < date '1994-03-01' + interval '3' month\n"
+            + "  and l.l_returnflag = 'R'\n"
+            + "  and c.c_nationkey = n.n_nationkey\n"
+            + "group by\n"
+            + "  c.c_custkey,\n"
+            + "  c.c_name,\n"
+            + "  c.c_acctbal,\n"
+            + "  c.c_phone,\n"
+            + "  n.n_name,\n"
+            + "  c.c_address,\n"
+            + "  c.c_comment\n"
+            + "order by\n"
+            + "  revenue desc\n"
+            + "limit 20";
+    testTPCHQuery(sql);
+  }
+
+  @Test
+  public void testTPCHQuery5() throws ValidationException, SqlParseException {
+    String sql =
+        "select\n"
+            + "  n.n_name,\n"
+            + "  sum(l.l_extendedprice * (1 - l.l_discount)) as revenue\n"
+            + "\n"
+            + "from\n"
+            + "  customer c,\n"
+            + "  orders o,\n"
+            + "  lineitem l,\n"
+            + "  supplier s,\n"
+            + "  nation n,\n"
+            + "  region r\n"
+            + "\n"
+            + "where\n"
+            + "  c.c_custkey = o.o_custkey\n"
+            + "  and l.l_orderkey = o.o_orderkey\n"
+            + "  and l.l_suppkey = s.s_suppkey\n"
+            + "  and c.c_nationkey = s.s_nationkey\n"
+            + "  and s.s_nationkey = n.n_nationkey\n"
+            + "  and n.n_regionkey = r.r_regionkey\n"
+            + "  and r.r_name = 'EUROPE'\n"
+            + "--  and o.o_orderdate >= date '1997-01-01'\n"
+            + "--  and o.o_orderdate < date '1997-01-01' + interval '1' year\n"
+            + "group by\n"
+            + "  n.n_name\n"
+            + "\n"
+            + "order by\n"
+            + "  revenue desc";
+
+    testTPCHQuery(sql);
+  }
+
+  @Test
+  public void testTPCHQuery3() throws ValidationException, SqlParseException {
     String sql =
         "select\n"
             + "  l.l_orderkey,\n"
@@ -270,6 +345,10 @@ public class OptToyAdapterTest extends RelOptTestBase {
             + "  revenue desc,\n"
             + "  o.o_orderdate\n"
             + "limit 10";
+    testTPCHQuery(sql);
+  }
+
+  public void testTPCHQuery(String sql) throws SqlParseException, ValidationException {
 
     optimizer = new VolcanoPlanner();
     optimizer.addRelTraitDef(ConventionTraitDef.INSTANCE);
@@ -361,6 +440,25 @@ public class OptToyAdapterTest extends RelOptTestBase {
      */
     RelNode result = planner.findBestExp();
     System.out.println(RelOptUtil.toString(result));
+  }
+
+  @Test
+  public void testTraitConversion() {
+    VolcanoPlanner planner = new VolcanoPlanner();
+    planner.addRelTraitDef(ConventionTraitDef.INSTANCE);
+    planner.addRule(new OptToyDummyRule());
+    RelOptCluster cluster = newCluster(planner);
+    RelBuilder relBuilder = RelFactories.LOGICAL_BUILDER.create(cluster, null);
+    RelNode logicalPlan = relBuilder
+            .values(new String[]{"id", "name"}, "2", "a", "1", "b")
+            .values(new String[]{"id", "name"}, "1", "x", "2", "y")
+            .join(JoinRelType.INNER, "id")
+            .build();
+    RelTraitSet desiredTraits =
+            cluster.traitSet().replace(OptToyConvention.INSTANCE);
+    final RelNode newRoot = planner.changeTraits(logicalPlan, desiredTraits);
+    planner.setRoot(newRoot);
+    RelNode bestExp = planner.findBestExp();
   }
 
   private static class LocalValidatorImpl extends SqlValidatorImpl {
